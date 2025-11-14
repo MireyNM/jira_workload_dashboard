@@ -1,0 +1,32 @@
+# Env files
+.env
+.env.*
+*.env
+
+# Bytecode/caches
+**/__pycache__/
+*.py[cod]
+
+# Virtual envs
+.venv/
+venv/
+ENV/
+env/
+
+# Other common ignores
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.cache/
+.vscode/
+.idea/
+*.code-workspace
+.DS_Store
+Thumbs.db
+node_modules/
+.next/
