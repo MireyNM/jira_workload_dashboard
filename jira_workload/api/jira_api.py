@@ -135,7 +135,7 @@ def get_issues(jql):
 
 def get_user_workload(session, account_id):
     # Exclude completed work
-    jql = f"assignee={account_id} AND statusCategory NOT IN ('Done','Cancelled')"
+    jql = f"assignee in (\"{account_id}\") AND statusCategory NOT IN ('Done','Cancelled')"
     url = f"{JIRA_URL}/rest/api/3/search/jql"
     payload = {
         "jql": jql,
@@ -143,6 +143,15 @@ def get_user_workload(session, account_id):
         "fields": ["project", "timeoriginalestimate"]
     }
     response = session.post(url, json=payload)
+    # Debug after sending the request
+    try:
+        print("[DEBUG] JQL:", jql)
+        print("[DEBUG] URL:", url)
+        print("[DEBUG] Status:", response.status_code)
+        body_preview = response.text[:400] if hasattr(response, 'text') else '<no body>'
+        print("[DEBUG] Body:", body_preview)
+    except Exception:
+        pass
     if response.status_code != 200:
         raise Exception(f"❌ Jira API error {response.status_code}: {response.text}")
 

@@ -1,4 +1,6 @@
 # Activate env: .\jira_env\Scripts\Activate.ps1 
+# Navigate to project root: cd .\jira_workload_dashboard 
+# Run app: python -m jira_workload.app.dashboard
 
 import os
 import sys
@@ -7,27 +9,64 @@ import pandas as pd
 
 from dotenv import load_dotenv
 from dash import Dash, html, dcc, Input, Output, dash_table
-from jira_workload.api.jira_api import connect_to_jira, get_users_from_groups, get_user_workload
+from jira_workload.api.jira_api import connect_to_jira, get_users_from_groups, get_user_workload, get_group_members
 
 load_dotenv()
+
+def normalize_name(name: str) -> str:
+    # Title-case words; preserve hyphens; uppercase dotted initials (e.g., J.s. -> J.S.)
+    if not isinstance(name, str):
+        return ""
+
+    def title_or_initials(token: str) -> str:
+        # If token contains dots, uppercase each dotted segment like initials
+        if "." in token:
+            segs = token.split(".")
+            new = []
+            for s in segs:
+                if s == "":
+                    new.append("")
+                elif len(s) == 1:
+                    new.append(s.upper())
+                else:
+                    new.append(s.capitalize())
+            return ".".join(new)
+        # Otherwise normal title-case
+        return token.capitalize()
+
+    words = []
+    for w in name.split(" "):
+        hy = []
+        for h in w.split("-"):
+            hy.append(title_or_initials(h))
+        words.append("-".join(hy))
+    return " ".join(words)
 
 app = Dash(__name__)
 
 session = connect_to_jira()
 
 # Get users from specific Jira groups (comma-separated in .env as JIRA_GROUP_NAMES)
-GROUP_NAMES = [g.strip() for g in os.getenv("JIRA_GROUP_NAMES", "").split(",") if g.strip()] 
-print("GROUP_NAMES from env:", GROUP_NAMES)
-users = get_users_from_groups(session, GROUP_NAMES)
+GROUP_NAMES = [g.strip() for g in os.getenv("JIRA_GROUP_NAMES", "").split(",") if g.strip()]
+APPLY_DOMAIN_FILTER = os.getenv("APPLY_DOMAIN_FILTER", "true").lower() == "true"
+EMAIL_DOMAIN = os.getenv("JIRA_EMAIL_DOMAIN", "@apscorp.ca").lower()
 
-# Optional: further restrict by company email domain
-users = [u for u in users if str(u.get("emailAddress", "")).lower().endswith("@apscorp.ca")]
+users = get_users_from_groups(session, GROUP_NAMES)
+ 
+
+if APPLY_DOMAIN_FILTER:
+    def keep(u):
+        email = str(u.get("emailAddress", "")).strip().lower()
+        return (not email) or email.endswith(EMAIL_DOMAIN)
+    users = [u for u in users if keep(u)]
+# else: keep all users unfiltered
+
 
 app.layout = html.Div([
     html.H2("User Workload Dashboard"),
     dcc.Dropdown(
         id='user-dropdown',
-        options=[{'label': u['displayName'], 'value': u['accountId']} for u in users],
+        options=[{'label': normalize_name(u.get('displayName', '')), 'value': u['accountId']} for u in users],
         placeholder='Select a user'
     ),
     dash_table.DataTable(
