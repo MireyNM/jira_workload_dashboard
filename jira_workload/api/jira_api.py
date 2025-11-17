@@ -135,12 +135,12 @@ def get_issues(jql):
 
 def get_user_workload(session, account_id):
     # Exclude completed work
-    jql = f"assignee in (\"{account_id}\") AND statusCategory NOT IN ('Done','Cancelled')"
+    jql = f"assignee in (\"{account_id}\") AND statusCategory != Done"
     url = f"{JIRA_URL}/rest/api/3/search/jql"
     payload = {
         "jql": jql,
         "maxResults": 1000,
-        "fields": ["project", "timeoriginalestimate"]
+        "fields": ["project", "timeoriginalestimate", "status"]
     }
     response = session.post(url, json=payload)
     # Debug after sending the request
@@ -157,15 +157,23 @@ def get_user_workload(session, account_id):
 
     issues = response.json().get("issues", [])
     data = []
+    # Exclude statuses that indicate non-work items regardless of exact spelling/case
+    exclude_keywords = ("canceled", "cancelled", "dropped", "drop", "blocked")
     for issue in issues:
         fields = issue.get("fields", {})
-        project = (fields.get("project") or {}).get("name")
+        project_info = (fields.get("project") or {})
+        project = project_info.get("name")
+        project_key = project_info.get("key")
+        status_name = ((fields.get("status") or {}).get("name") or "").strip().lower()
+        if any(kw in status_name for kw in exclude_keywords):
+            continue
         time_estimate = fields.get("timeoriginalestimate") or 0
-        data.append([project, issue.get("key"), time_estimate])
+        data.append([project, project_key, issue.get("key"), time_estimate])
 
-    df = pd.DataFrame(data, columns=["Project", "Issue", "Time (seconds)"])
+    df = pd.DataFrame(data, columns=["Project", "Project Key", "Issue", "Time (seconds)"])
     grouped = df.groupby("Project").agg({
         "Issue": "count",
-        "Time (seconds)": "sum"
+        "Time (seconds)": "sum",
+        "Project Key": "first",
     }).reset_index().rename(columns={"Issue": "Issues"})
     return grouped

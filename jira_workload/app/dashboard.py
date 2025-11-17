@@ -4,6 +4,7 @@
 
 import os
 import sys
+from urllib.parse import quote_plus
 import pandas as pd
 
 
@@ -50,6 +51,7 @@ session = connect_to_jira()
 GROUP_NAMES = [g.strip() for g in os.getenv("JIRA_GROUP_NAMES", "").split(",") if g.strip()]
 APPLY_DOMAIN_FILTER = os.getenv("APPLY_DOMAIN_FILTER", "true").lower() == "true"
 EMAIL_DOMAIN = os.getenv("JIRA_EMAIL_DOMAIN", "@apscorp.ca").lower()
+JIRA_URL = os.getenv("JIRA_URL", "").rstrip("/")
 
 users = get_users_from_groups(session, GROUP_NAMES)
  
@@ -72,8 +74,8 @@ app.layout = html.Div([
     dash_table.DataTable(
     id='workload-table',
     columns=[
-        {"name": "Project", "id": "Project"},
-        {"name": "Issues", "id": "Issues"},
+        {"name": "Project", "id": "Project", "presentation": "markdown"},
+        {"name": "Issues", "id": "Issues", "presentation": "markdown"},
         {"name": "Workload (hours)", "id": "Workload (hours)"},
         {"name": "Workload (weeks, days, hours)", "id": "Workload (weeks, days, hours)"},
     ],
@@ -99,7 +101,7 @@ app.layout = html.Div([
 def update_table(account_id):
     if not account_id:
         return []
-    df = get_user_workload(session, account_id)  # columns: Project, Issues, Time (seconds)
+    df = get_user_workload(session, account_id)  # columns: Project, Issues, Time (seconds), Project Key
 
     # Compute hours from seconds
     df["Workload (hours)"] = (df["Time (seconds)"] / 3600).round(2)
@@ -124,16 +126,36 @@ def update_table(account_id):
     total_hours = round(total_seconds / 3600, 2)
     total_formatted = fmt_weeks_days_hours(total_seconds)
 
-    # Drop raw seconds column and select final columns
-    df = df[["Project", "Issues", "Workload (hours)", "Workload (weeks, days, hours)"]]
+    # Build clickable links
+    def make_project_link(row):
+        key = str(row.get("Project Key", "")).strip()
+        name = str(row.get("Project", "")).strip()
+        if JIRA_URL and key and name:
+            # Link to the main project page (browse)
+            return f"[{name}]({JIRA_URL}/browse/{key})"
+        return name
 
-    # Drop raw seconds column and select final columns
-    df = df[["Project", "Issues", "Workload (hours)", "Workload (weeks, days, hours)"]]
+    def make_issues_link(row):
+        key = str(row.get("Project Key", "")).strip()
+        issues_count = row.get("Issues", 0)
+        if JIRA_URL and key and issues_count:
+            # Link to issues for the selected assignee within this project, excluding Done items
+            jql = f"project={key} AND assignee in (\"{account_id}\") AND statusCategory != Done"
+            return f"[{int(issues_count)}]({JIRA_URL}/issues/?jql={quote_plus(jql)})"
+        return str(int(issues_count)) if issues_count else "0"
+
+    if "Project Key" in df.columns:
+        df["Project"] = df.apply(make_project_link, axis=1)
+        df["Issues"] = df.apply(make_issues_link, axis=1)
+
+    # Drop helper columns and select final columns
+    keep_cols = ["Project", "Issues", "Workload (hours)", "Workload (weeks, days, hours)"]
+    df = df[[c for c in keep_cols if c in df.columns]]
 
     records = df.to_dict("records")
     records.append({
         "Project": "Total",
-        "Issues": total_issues,
+        "Issues": str(total_issues),  # keep plain text for total row
         "Workload (hours)": total_hours,
         "Workload (weeks, days, hours)": total_formatted,
     })
