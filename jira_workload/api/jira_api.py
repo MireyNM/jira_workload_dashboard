@@ -170,6 +170,18 @@ def get_user_workload(session, account_id):
         time_estimate = fields.get("timeoriginalestimate") or 0
         data.append([project, project_key, issue.get("key"), time_estimate])
 
+    if not data:
+        placeholder_df = pd.DataFrame(
+            [["No work assigned in the backlog", "", None, 0]],
+            columns=["Project", "Project Key", "Issue", "Time (seconds)"]
+        )
+        grouped = placeholder_df.groupby("Project").agg({
+            "Issue": "count",
+            "Time (seconds)": "sum",
+            "Project Key": "first",
+        }).reset_index().rename(columns={"Issue": "Issues"})
+        return grouped
+
     df = pd.DataFrame(data, columns=["Project", "Project Key", "Issue", "Time (seconds)"])
     grouped = df.groupby("Project").agg({
         "Issue": "count",
