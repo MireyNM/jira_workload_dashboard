@@ -26,9 +26,9 @@ def connect_to_jira():
 # ==== ISSUE COUNT ====
 def count_issues(session, jql):
     """Count issues based on JQL (v3 REST API)"""
-    url = f"{JIRA_URL}/rest/api/3/search"
+    url = f"{JIRA_URL}/rest/api/3/search/jql"
     params = {"jql": jql, "maxResults": 0}
-    response = session.get(url, params=params)
+    response = session.post(url, json=params)
 
     if response.status_code != 200:
         raise Exception(f"❌ Jira API error {response.status_code}: {response.text}")
@@ -46,28 +46,6 @@ def get_project_count(session):
     data = response.json()
     return data.get("total", 0)
 
-# ==== USER LIST ====
-# def get_all_jira_users(session):
-#     """Fetch all users using Jira REST API v3 with pagination"""
-#     all_users = []
-#     start_at = 0
-#     max_results = 80
-
-#     while True:
-#         url = f"{JIRA_URL}/rest/api/3/users/search"
-#         response = session.get(url, params={"startAt": start_at, "maxResults": max_results})
-#         if response.status_code != 200:
-#             raise Exception(f"❌ Jira API error {response.status_code}: {response.text}")
-
-#         users = response.json()
-#         if not users:
-#             break
-
-#         all_users.extend(users)
-#         start_at += max_results
-
-#     print(f"✅ Retrieved {len(all_users)} users from Jira")
-#     return all_users
 
 def get_group_members(session, group_name, max_results=100):
     """Return members of a Jira group by name (paginated)."""
@@ -116,7 +94,7 @@ def get_users_from_groups(session, group_names):
 
 # === Function to query Jira ===
 def get_issues(jql):
-    url = f"{JIRA_URL}/rest/api/3/search"
+    url = f"{JIRA_URL}/rest/api/3/search/jql"
     response = requests.post(
         url,
         json={
@@ -182,10 +160,20 @@ def get_user_workload(session, account_id):
         }).reset_index().rename(columns={"Issue": "Issues"})
         return grouped
 
-    df = pd.DataFrame(data, columns=["Project", "Project Key", "Issue", "Time (seconds)"])
-    grouped = df.groupby("Project").agg({
-        "Issue": "count",
-        "Time (seconds)": "sum",
-        "Project Key": "first",
-    }).reset_index().rename(columns={"Issue": "Issues"})
-    return grouped
+def get_user_issues_raw(session, account_id, start_due=None, end_due=None):
+    jql_parts = [f"assignee = {account_id}", "statusCategory != Done"]
+    if start_due:
+        jql_parts.append(f"duedate >= \"{start_due}\"")
+    if end_due:
+        jql_parts.append(f"duedate <= \"{end_due}\"")
+    jql = " AND ".join(jql_parts)
+    url = f"{JIRA_URL}/rest/api/3/search/jql"
+    payload = {
+        "jql": jql,
+        "maxResults": 1000,
+        "fields": ["project", "timeoriginalestimate", "status", "assignee", "duedate"]
+    }
+    response = session.post(url, json=payload)
+    if response.status_code != 200:
+        raise Exception(f"❌ Jira API error {response.status_code}: {response.text}")
+    return response.json().get("issues", [])
